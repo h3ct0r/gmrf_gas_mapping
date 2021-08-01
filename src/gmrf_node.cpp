@@ -47,10 +47,10 @@ Cgmrf::Cgmrf()
     param_n.param<double>("suggest_next_location_sensor_th", suggest_next_location_sensor_th, 0.1);
 
 
-    ROS_DEBUG("[GMRF] frame_id: %s",  frame_id.c_str());
-    ROS_DEBUG("[GMRF] occupancy_map_topic: %s",  occupancy_map_topic.c_str());
-    ROS_DEBUG("[GMRF] sensor_topic: %s",  sensor_topic.c_str());
-    ROS_DEBUG("[GMRF] output_csv_file: %s",  output_csv_file.c_str());
+    ROS_INFO("[GMRF] frame_id: %s",  frame_id.c_str());
+    ROS_INFO("[GMRF] occupancy_map_topic: %s",  occupancy_map_topic.c_str());
+    ROS_INFO("[GMRF] sensor_topic: %s",  sensor_topic.c_str());
+    ROS_INFO("[GMRF] output_csv_file: %s",  output_csv_file.c_str());
 
 
 

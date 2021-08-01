@@ -14,11 +14,24 @@ CGMRF_map::CGMRF_map(const nav_msgs::OccupancyGrid &oc_map, float cell_size, flo
         m_resolution = cell_size;
         GMRF_lambdaPrior = m_lambdaPrior;
 
+        ROS_INFO("[CGMRF] m_resolution=%.2f GMRF_lambdaPrior=%.2f", m_resolution, GMRF_lambdaPrior);
+
         //Set GasMap dimensions as the OccupancyMap
         double x_min =  oc_map.info.origin.position.x;
         double x_max =  oc_map.info.origin.position.x + oc_map.info.width*oc_map.info.resolution;
         double y_min =  oc_map.info.origin.position.y;
         double y_max =  oc_map.info.origin.position.y + oc_map.info.height*oc_map.info.resolution;
+
+        const char * format = "%.1f \t%.1f \t%.1f \t%.1f \t%.1f\n";
+          printf ("value\tround\tfloor\tceil\ttrunc\n");
+          printf ("-----\t-----\t-----\t----\t-----\n");
+          printf (format, 2.3,round( 2.3),floor( 2.3),ceil( 2.3),trunc( 2.3));
+          printf (format, 3.8,round( 3.8),floor( 3.8),ceil( 3.8),trunc( 3.8));
+          printf (format, 5.5,round( 5.5),floor( 5.5),ceil( 5.5),trunc( 5.5));
+          printf (format,-2.3,round(-2.3),floor(-2.3),ceil(-2.3),trunc(-2.3));
+          printf (format,-3.8,round(-3.8),floor(-3.8),ceil(-3.8),trunc(-3.8));
+          printf (format,-5.5,round(-5.5),floor(-5.5),ceil(-5.5),trunc(-5.5));
+          printf (format,-27.5,round(-27.5),floor(-27.5),ceil(-27.5),trunc(-27.5));
 
         // Adjust sizes to adapt them to full sized cells acording to the resolution:
         m_x_min = cell_size*round(x_min/cell_size);
@@ -26,8 +39,21 @@ CGMRF_map::CGMRF_map(const nav_msgs::OccupancyGrid &oc_map, float cell_size, flo
         m_x_max = cell_size*round(x_max/cell_size);
         m_y_max = cell_size*round(y_max/cell_size);
 
+        ROS_INFO("[CGMRF] DEBUG ROUND x=(%.2f,%.2f) y=(%.2f,%.2f)", round(x_min/cell_size), round(y_min/cell_size),
+                round(x_max/cell_size), round(y_max/cell_size));
+
+        ROS_INFO("[CGMRF] DEBUG ROUND 2 round(%.2f/%.2f)=%.2f  (%.2f/%.2f)=%.2f", x_min, cell_size, round(x_min/cell_size), x_min, cell_size, x_min/cell_size);
+        ROS_INFO("[CGMRF] DEBUG ROUND 3 %.2f  %.2f", round(-27.5), std::round(x_min/cell_size));
+
+        ROS_INFO("[CGMRF] Map cells=%u x=(%.2f,%.2f) y=(%.2f,%.2f)", oc_map.data.size(), x_min, y_min,
+                  x_max, y_max);
+
+        ROS_INFO("[CGMRF] Map x=(%.2f,%.2f) y=(%.2f,%.2f)", m_x_min, m_y_min,
+                  m_x_max, m_y_max);
+
         // Res:
         res_coef = m_resolution / oc_map.info.resolution;
+        ROS_INFO("[CGMRF] res_coef=%.2f", res_coef);
 
         // Now the number of cells should be integers:
         m_size_x = round((m_x_max-m_x_min)/m_resolution);
@@ -40,7 +66,7 @@ CGMRF_map::CGMRF_map(const nav_msgs::OccupancyGrid &oc_map, float cell_size, flo
         init_cell.mean = 0.0;
         init_cell.std = 0.0;
         m_map.assign(N, init_cell);
-        ROS_INFO("[CGMRF] Map created: %u cells, x=(%.2f,%.2f) y=(%.2f,%.2f)", static_cast<unsigned int>(m_map.size()), m_x_min, m_x_max, m_y_min, m_y_max);
+        ROS_INFO("[CGMRF] Map created: %u cells (N=%u), x=(%.2f,%.2f) y=(%.2f,%.2f)", static_cast<unsigned int>(m_map.size()), N, m_x_min, m_x_max, m_y_min, m_y_max);
 
 
         //---------------------
@@ -83,6 +109,8 @@ CGMRF_map::CGMRF_map(const nav_msgs::OccupancyGrid &oc_map, float cell_size, flo
             seed_cxo = cxoj_min + ceil(res_coef/2-1);
             seed_cyo = cyoj_min + ceil(res_coef/2-1);
 
+            ROS_INFO("[CGMRF] cxoj_min:%u cxoj_max:%u cyoj_min:%u cyoj_max:%u", cxoj_min, cxoj_max, cyoj_min, cyoj_max);
+            ROS_INFO("[CGMRF] seed_cxo:%u seed_cyo:%u", seed_cxo, seed_cyo);
 
             //If a cell is free then add observation with very low information
             //to force non-visited cells to have a 0.0 mean
@@ -289,14 +317,16 @@ bool CGMRF_map::exist_relation_between2cells(
                             for (int j=-1;j<=1;j++)
                             {
                                 //check that neighbour is inside the map
-                                if( (int(row)+j>=0) && (int(row)+j<=int(matExp.rows()-1)) && (int(col)+i>=0) && (int(col)+i<=int(matExp.cols())-1) )
+                                if( (int(row)+j>=0) && (int(row)+j<=int(matExp.rows()-1)) &&
+                                (int(col)+i>=0) && (int(col)+i<=int(matExp.cols())-1) )
                                 {
                                     if( !( (i==0 && j==0) || !(matExp(row+j,col+i)==0) ))
                                     {
                                         //check if expand
 
 
-                                        if ( (m_Ocgridmap->data[row+cxo_min + (col+cyo_min)*m_Ocgridmap->info.width]<50.0) == (m_Ocgridmap->data[row+j+cxo_min + (col+i+cyo_min)*m_Ocgridmap->info.width]<50.0))
+                                        if ( (m_Ocgridmap->data[row+cxo_min + (col+cyo_min)*m_Ocgridmap->info.width]<50.0) ==
+                                        (m_Ocgridmap->data[row+j+cxo_min + (col+i+cyo_min)*m_Ocgridmap->info.width]<50.0))
                                         {
                                             if ( (row+j+cxo_min == objective_cxo) && (col+i+cyo_min == objective_cyo) )
                                             {

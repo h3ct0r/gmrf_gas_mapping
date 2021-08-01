@@ -13,7 +13,7 @@
 #include "std_msgs/MultiArrayDimension.h"
 #include <vector>
 #include <array>
-
+#include <math.h>
 
 
 #define NUM_CELL_TEMPLATES 200      //For plotting only

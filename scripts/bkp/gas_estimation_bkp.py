@@ -13,7 +13,6 @@ import tf
 import collections
 import matplotlib.pyplot as plt
 import math
-from occupancy_grid_manager_resolution import OccupancyGridManagerResolution
 
 
 class TRandomFieldCell(object):
@@ -62,40 +61,49 @@ class TObservationGMRF(object):
 class GMRFMap(object):
     def __init__(self, oc_map, cell_size=0.2):
         self._oc_map = oc_map
-        self._oc_manager = OccupancyGridManagerResolution(oc_map, cell_size)
 
         self.GMRF_lambdaPrior = 0.5  # The information (Lambda) of prior factors
-        self.GMRF_lambdaObs = 10.0  # The initial information (Lambda) of each observation (will decrease over time)
+        self.GMRF_lambdaObs = 10.0  # The initial information (Lambda) of each observation (this will decrease with time)
         self.GMRF_lambdaObsLoss = 0.0  # The loss of information (Lambda) of the observations with each iteration
 
-        self.m_size_x = 0
-        self.m_size_y = 0
-        self.cell_size = cell_size
-        self.res_coefficient = 0.0
+        rospy.loginfo("[CGMRF] m_resolution=%.2f GMRF_lambdaPrior=%.2f", cell_size, self.GMRF_lambdaPrior)
 
-        rospy.loginfo("[CGMRF] Map resolution: %.2f, cell size: %.2f", oc_map.info.resolution, cell_size)
+        self.map_min_x = oc_map.info.origin.position.x
+        self.map_max_x = oc_map.info.origin.position.x + oc_map.info.width * oc_map.info.resolution
+        self.map_min_y = oc_map.info.origin.position.y
+        self.map_max_y = oc_map.info.origin.position.y + oc_map.info.height * oc_map.info.resolution
 
-        #self.init_map()
-
-    def init_map(self):
-        map_min_x = self._oc_map.info.origin.position.x
-        map_max_x = self._oc_map.info.origin.position.x + oc_map.info.width * oc_map.info.resolution
-        map_min_y = self._oc_map.info.origin.position.y
-        map_max_y = self._oc_map.info.origin.position.y + oc_map.info.height * oc_map.info.resolution
+        rospy.loginfo("[CGMRF] Map cells=%.2f x=(%.2f,%.2f) y=(%.2f,%.2f)", len(self._oc_map.data), self.map_min_x, self.map_min_y,
+                      self.map_max_x, self.map_max_y)
 
         # Adjust sizes to adapt them to full sized cells acording to the resolution:
-        m_x_min = cell_size * round(self.map_min_x / float(cell_size))
+        m_x_min = cell_size * round((self.map_min_x / float(cell_size)) + 0.1)
         m_y_min = cell_size * round(self.map_min_y / float(cell_size))
         m_x_max = cell_size * round(self.map_max_x / float(cell_size))
         m_y_max = cell_size * round(self.map_max_y / float(cell_size))
-        self.res_coefficient = cell_size / round(oc_map.info.resolution, 2)
+        self.res_coef = cell_size / round(oc_map.info.resolution, 2)
+
+        rospy.loginfo("[CGMRF] map resolution:%.20f", oc_map.info.resolution)
+
+        rospy.loginfo("[CGMRF] DEBUG ROUND x=(%.2f,%.2f) y=(%.2f,%.2f)", round(self.map_min_x / float(cell_size)),
+                 round(self.map_min_y / float(cell_size)),
+                 round(self.map_max_x / float(cell_size)),
+                 round(self.map_max_y / float(cell_size)))
+
+        rospy.loginfo("[CGMRF] Map x=(%.2f,%.2f) y=(%.2f,%.2f)", m_x_min, m_y_min,
+                 m_x_max, m_y_max)
+
+        rospy.loginfo("[CGMRF] res_coef=%.2f", self.res_coef)
 
         # Now the number of cells should be integers:
         self.m_size_x = round((m_x_max - m_x_min) / float(cell_size))
         self.m_size_y = round((m_y_max - m_y_min) / float(cell_size))
         self.N = int(self.m_size_x * self.m_size_y)
+        rospy.loginfo("[CGMRF] m_size_x=%.2f m_size_y=%.2f", self.m_size_x, self.m_size_y)
 
         self.m_map = [TRandomFieldCell(0.0, 0.0) for i in xrange(self.N)]
+        rospy.loginfo("[CGMRF] Map created: %u cells (N=%u), x=(%.2f,%.2f) y=(%.2f,%.2f)",
+                      len(self.m_map), self.N, m_x_min, m_x_max, m_y_min, m_y_max)
 
         # init random field
         rospy.loginfo("[CGMRF] Generating Prior based on 'Squared Differences'")
@@ -105,7 +113,6 @@ class GMRFMap(object):
         self.nObsFactors = 0  # M
         self.nFactors = self.nPriorFactors + self.nObsFactors  # L + M
         rospy.loginfo("[CGMRF] %lu factors for a map size of N=%lu", self.nFactors, self.N)
-        rospy.loginfo("[CGMRF] map len=%lu", len(self._oc_map.data))
 
         # Initialize H_prior, gradient = 0, and the vector of active observations = empty
         self.H_prior = []  # the prior part of H
