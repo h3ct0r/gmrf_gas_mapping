@@ -446,6 +446,7 @@ void  CGMRF_map::updateMapEstimation_GMRF(float lambdaObsLoss)
                 cx=0;
                 cy++;
             }
+
         }//end-for
 
 

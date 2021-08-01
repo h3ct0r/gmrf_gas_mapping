@@ -18,6 +18,8 @@ N = max_value(data)
 n_x_cells = int(data[1][1])
 n_y_cells = int(N/n_x_cells)
 
+print("n_x_cells:", n_x_cells, "n_y_cells:", n_y_cells)
+
 for i in range(len(data)):
     a = data[i][0]
     b = data[i][1]

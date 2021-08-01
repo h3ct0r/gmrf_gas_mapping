@@ -12,7 +12,7 @@ from t_observation_gmrf import TObservationGMRF
 from t_random_field_cell import TRandomFieldCell
 
 
-class OccupancyGridManagerResolution(object):
+class OccupancyGridManagerGKernel(object):
     def __init__(self, oc_map, target_resolution=0.2):
         self._reference_frame = None
         self._lambdaPrior = 0.5  # The information (Lambda) of prior factors
@@ -35,22 +35,7 @@ class OccupancyGridManagerResolution(object):
         self._init_occ_grid(oc_map)
         self._prepare_connectivity()
 
-        self.m_map = [[TRandomFieldCell(0.0, 0.0) for i in range(self.width)] for j in range(self.height)]
-        self.active_obs = [[[TObservationGMRF(0.0, 0.0, False)] for i in range(self.width)] for j in range(self.height)]
-
-        print("self.self.active_obs:",
-              len(self.active_obs),
-              len(self.active_obs[0]),
-              len(self.active_obs[0][0]))
-
-        self.h_prior = [[-self._lambdaPrior for i in range(self.width)] for j in range(self.height)]
-
-        # L = (Nr - 1) * Nc + Nr * (Nc - 1)
-        self.n_prior_factors = (self.width - 1) * self.height + self.width * (self.height - 1)
-        # M
-        self.n_obs_factors = 0
-        # L + M
-        self.n_factors = self.n_prior_factors + self.n_obs_factors
+        self.active_obs = np.zeros((self.height, self.width))
 
         rospy.loginfo("Height (y / rows): " + str(self.height) +
                       ", Width (x / columns): " + str(self.width) +
@@ -360,47 +345,13 @@ class OccupancyGridManagerResolution(object):
 
         return -1, -1, -1
 
-    def insert_observation_gmrf(self, norm_reading, wx, wy):
+    def insert_observation(self, norm_reading, wx, wy):
         try:
             mx, my = self.get_costmap_x_y(wx, wy)
             observation = TObservationGMRF(norm_reading, self._lambdaObs, False)  # The obs will lose weight with time.
             self.active_obs[mx][my].append(observation)
         except Exception as ex:
             rospy.logwarn(ex)
-
-    def update_map_estimation_gmrf(self):
-        # 1 - hessian
-        h_tri = []
-
-        for j in xrange(self.width):
-            for i in xrange(self.height):
-                lambda_obj_ij = 0.0
-                for e in self.active_obs[i][j]:
-                    lambda_obj_ij += e.get_obs_lambda()
-
-                if lambda_obj_ij != 0.0:
-                    h_tri.append((i, j, lambda_obj_ij))
-
-        # 2 - gradient
-        # reset and build the gradient vector
-        g = np.zeros((self.height, self.width))
-        for j in xrange(self.width):
-            for i in xrange(self.height):
-                # a - gradient due to observations
-                g[i][j] += sum([(self.m_map[i][j].mean - ob.get_obs_value()) * ob.get_obs_lambda()
-                               for ob in self.active_obs[i][j]])
-
-                # b - gradient due to prior
-                # consider only cells correlated with cell ij
-                u = (j, i)
-                connections = self.get_cell_interconnections()[u]
-                for v in connections:
-                    g[i][j] += (self.m_map[i][j].mean - self.m_map[v[1]][v[0]].mean) * self._lambdaPrior
-
-        # plt.imshow(g, cmap='hot', interpolation='nearest')
-        # plt.show()
-
-        pass
 
     # def plot_gas_points(self):
     #     plt.scatter([self.map_min_x, self.map_min_x, self.map_max_x, self.map_max_x],
