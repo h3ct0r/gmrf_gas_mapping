@@ -10,10 +10,9 @@ import time
 import collections
 from olfaction_msgs.msg import gas_sensor
 import tf
-import collections
 import matplotlib.pyplot as plt
 import math
-from occupancy_grid_manager_resolution import OccupancyGridManagerResolution
+# from occupancy_grid_manager_resolution import OccupancyGridManagerResolution
 from occupancy_grid_manager_gkernel import  OccupancyGridManagerGKernel
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
@@ -34,7 +33,7 @@ class GasEstimationNode(object):
         self.font = cv2.FONT_HERSHEY_SIMPLEX
 
         self.latest_costmap = None
-        self.gas_measurements = dict()
+        #self.gas_measurements = dict()
         self._oc_manager = None
 
         # subscribers
@@ -61,6 +60,8 @@ class GasEstimationNode(object):
             rospy.logwarn("Waiting for initialization...")
             rate.sleep()
 
+        # plt.ion()
+        # plt.show()
         while not rospy.is_shutdown():
             if self.latest_costmap is None:
                 rate.sleep()
@@ -71,7 +72,8 @@ class GasEstimationNode(object):
             #self.plot_gas_points()
 
             self.pub_var_markers()
-            self._oc_manager.update_map_estimation_gmrf()
+            self._oc_manager.update_map_estimation()
+            #self._oc_manager.update_map_estimation_gmrf()
 
             rate.sleep()
 
@@ -93,6 +95,7 @@ class GasEstimationNode(object):
         """ receive the occupancy grid map and register it """
         self.latest_costmap = msg
         self._oc_manager = OccupancyGridManagerGKernel(self.latest_costmap)
+        # self._oc_manager = OccupancyGridManagerResolution(self.latest_costmap)
 
     def handle_gas_sensor_cb(self, msg):
         """
@@ -142,42 +145,10 @@ class GasEstimationNode(object):
 
         #rospy.loginfo("[GMRF] New obs: %.2f at (%.2f,%.2f)", curr_reading, x_pos, y_pos)
 
-        p_key = (x_pos, y_pos)
-        if p_key not in self.gas_measurements:
-            self.gas_measurements[p_key] = collections.deque(maxlen=10)
+        #print("curr_reading:", curr_reading, "x_pos:", x_pos, "y_pos:", y_pos)
 
-        self.gas_measurements[p_key].append(curr_reading)
-        self._oc_manager.insert_observation_gmrf(curr_reading, x_pos, y_pos)
-
-    @staticmethod
-    def map_to_img(occ_grid):
-        """ convert nav_msgs/OccupancyGrid to OpenCV mat
-            small noise in the occ grid is removed by
-            thresholding on the occupancy probability (> 50%)
-        """
-
-        data = occ_grid.data
-        w = occ_grid.info.width
-        h = occ_grid.info.height
-
-        img = np.zeros((h, w, 1), np.uint8)
-        img += 255  # start with a white canvas instead of a black one
-
-        # occupied cells (0 - 100 prob range)
-        # free cells (0)
-        # unknown -1
-        for i in range(0, h):
-            for j in range(0, w):
-                if data[i * w + j] >= 50:
-                    img[i, j] = 0
-                elif 0 < data[i * w + j] < 50:
-                    img[i, j] = 255
-                elif data[i * w + j] == -1:
-                    img[i, j] = 205
-
-        # crop borders if performing map stitching
-        # img = img[20:380, 20:380]
-        return img
+        self._oc_manager.insert_observation(curr_reading, x_pos, y_pos)
+        # self._oc_manager.insert_observation_gmrf(curr_reading, x_pos, y_pos)
 
     # def gas_estimation(self):
     #     """
@@ -204,9 +175,9 @@ class GasEstimationNode(object):
                 marker.id = c_id # (i * self._oc_manager.width) + j
                 marker.type = marker.SPHERE
                 marker.action = marker.ADD
-                marker.scale.x = 0.15
-                marker.scale.y = 0.15
-                marker.scale.z = 0.15
+                marker.scale.x = 0.1
+                marker.scale.y = 0.1
+                marker.scale.z = 0.1
                 marker.color.a = 1.0
                 marker.color.r = 1.0
                 marker.color.g = 1.0
@@ -216,7 +187,7 @@ class GasEstimationNode(object):
                 wx, wy = self._oc_manager.get_world_x_y(i, j)
                 marker.pose.position.x = wx
                 marker.pose.position.y = wy
-                marker.pose.position.z = 1.0
+                marker.pose.position.z = 0.2
                 markerArray.markers.append(marker)
                 c_id += 1
 

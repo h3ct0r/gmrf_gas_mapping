@@ -10,6 +10,9 @@ import cv2
 import matplotlib.pyplot as plt
 from t_observation_gmrf import TObservationGMRF
 from t_random_field_cell import TRandomFieldCell
+import scipy
+import scipy.linalg
+import numdifftools as nd
 
 
 class OccupancyGridManagerResolution(object):
@@ -44,6 +47,20 @@ class OccupancyGridManagerResolution(object):
               len(self.active_obs[0][0]))
 
         self.h_prior = [[-self._lambdaPrior for i in range(self.width)] for j in range(self.height)]
+        for j in range(self.height):
+            for i in range(self.width):
+                if i == j:
+                    self.h_prior[j][i] = i * self._lambdaPrior
+
+        #self.h_prior = []
+        # for j in range(self.height):
+        #     for i in range(self.width):
+        #         if i == j:
+        #             self.h_prior[j][i](j * self._lambdaPrior)
+        #         # else:
+        #         #     self.h_prior.append(-self._lambdaPrior)
+        self.h_prior = np.array(self.h_prior)
+        print(self.h_prior)
 
         # L = (Nr - 1) * Nc + Nr * (Nc - 1)
         self.n_prior_factors = (self.width - 1) * self.height + self.width * (self.height - 1)
@@ -370,8 +387,11 @@ class OccupancyGridManagerResolution(object):
 
     def update_map_estimation_gmrf(self):
         # 1 - hessian
-        h_tri = []
-
+        #h_tri = np.zeros((self.height, self.width))
+        N = self.width * self.height
+        h_tri = np.zeros((N, N))
+        h_tri[0:0 + self.h_prior.shape[0], 0:0 + self.h_prior.shape[1]] += self.h_prior
+        #h_tri = self.h_prior.copy()
         for j in xrange(self.width):
             for i in xrange(self.height):
                 lambda_obj_ij = 0.0
@@ -379,7 +399,8 @@ class OccupancyGridManagerResolution(object):
                     lambda_obj_ij += e.get_obs_lambda()
 
                 if lambda_obj_ij != 0.0:
-                    h_tri.append((i, j, lambda_obj_ij))
+                    h_tri[i][j] = lambda_obj_ij
+                    # h_tri.append((i, j, lambda_obj_ij))
 
         # 2 - gradient
         # reset and build the gradient vector
@@ -399,6 +420,16 @@ class OccupancyGridManagerResolution(object):
 
         # plt.imshow(g, cmap='hot', interpolation='nearest')
         # plt.show()
+        # https://www.quantstart.com/articles/Cholesky-Decomposition-in-Python-and-NumPy/
+        #L = scipy.linalg.cholesky(A, lower=True)
+        #U = scipy.linalg.cholesky(A, lower=False)
+
+        #H = hessian(h_tri)
+        #H = nd.Hessian(h_tri)([1, 2])
+        print("h_tri.shape:", h_tri.shape)
+        U = scipy.linalg.cholesky(h_tri, lower=False)
+        m_inc = np.zeros((self.height, self.width))
+        sigma = np.zeros((self.height, self.width))
 
         pass
 

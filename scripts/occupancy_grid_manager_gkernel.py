@@ -10,6 +10,9 @@ import cv2
 import matplotlib.pyplot as plt
 from t_observation_gmrf import TObservationGMRF
 from t_random_field_cell import TRandomFieldCell
+from td_kernel_dmvw import TDKernelDMVW
+import collections
+import time
 
 
 class OccupancyGridManagerGKernel(object):
@@ -35,7 +38,42 @@ class OccupancyGridManagerGKernel(object):
         self._init_occ_grid(oc_map)
         self._prepare_connectivity()
 
-        self.active_obs = np.zeros((self.height, self.width))
+        self.gas_measurements = dict()
+
+        # sample_observations = [
+        #     [0.153, 3.4123405647476, -1.1078826220720974],
+        #     [0.153, 3.4123405647476, -1.1078826220720974],
+        #     [0.434355298, 3.4123405647476, -1.1078826220720974],
+        #     [0.080, 3.4123405647476, -1.1078826220720974],
+        #     [0.153, 3.4123405647476, -1.1078826220720974],
+        #     [0.1090, 3.4123405647476, -1.1078826220720974],
+        #     [0.153, 3.4123405647476, -1.1078826220720974],
+        #     [0.153, 3.4123405647476, -1.1078826220720974],
+        #     [0.153, 3.4123405647476, -1.1078826220720974],
+        #     [0.77, 4.016034043884688, -1.0139397066082456],
+        #     [0.20505, 4.001193773296208, -1.0400150643866275],
+        #     [0.012320106228192648, 4.275501017866776, -0.4434828558444557]
+        # ]
+        #
+        # for e in sample_observations:
+        #     self.insert_observation(e[0], e[1], e[2])
+
+        # Set parameters
+        min_x = 0
+        min_y = 0
+        max_x = self.width
+        max_y = self.height
+
+        cell_size = 1
+        kernel_size = 3 * cell_size
+        wind_scale = 0.05
+        time_scale = 0.001
+        evaluation_radius = 2 * kernel_size
+
+        # call Kernel
+        self.kernel = TDKernelDMVW(min_x, min_y, max_x, max_y, cell_size, kernel_size, wind_scale, time_scale,
+                              low_confidence_calculation_zero=True, evaluation_radius=evaluation_radius,
+                              cell_interconnections=self.cell_interconnections)
 
         rospy.loginfo("Height (y / rows): " + str(self.height) +
                       ", Width (x / columns): " + str(self.width) +
@@ -43,6 +81,9 @@ class OccupancyGridManagerGKernel(object):
                       " Reference_frame: " + str(self.reference_frame) +
                       " target resolution: " + str(self._target_resolution) +
                       " origin: \n" + str(self.origin))
+
+    def update_map(self, oc_map):
+        self._init_occ_grid(oc_map)
 
     @staticmethod
     def map_to_img(occ_grid):
@@ -348,10 +389,179 @@ class OccupancyGridManagerGKernel(object):
     def insert_observation(self, norm_reading, wx, wy):
         try:
             mx, my = self.get_costmap_x_y(wx, wy)
-            observation = TObservationGMRF(norm_reading, self._lambdaObs, False)  # The obs will lose weight with time.
-            self.active_obs[mx][my].append(observation)
+            p_key = (mx, my)
+
+            #p_key = (wx, wy)
+            if p_key not in self.gas_measurements:
+                self.gas_measurements[p_key] = collections.deque(maxlen=30)
+
+            self.gas_measurements[p_key].append({"measurement": norm_reading, "timestamp": int(time.time())})
         except Exception as ex:
             rospy.logwarn(ex)
+
+    def update_map_estimation(self):
+
+        def scale(im, nR, nC):
+            """
+            Scale image
+            :param im: matrix image
+            :param nR: n rows
+            :param nC: n columns
+            :return:
+            """
+            nR0 = len(im)  # source number of rows
+            nC0 = len(im[0])  # source number of columns
+            return [[im[int(nR0 * r / nR)][int(nC0 * c / nC)]
+                     for c in range(nC)] for r in range(nR)]
+
+        if len(self.gas_measurements.keys()) < 3:
+            rospy.logwarn("measurements less than 3")
+            return
+
+        positions_x = []
+        positions_y = []
+        concentrations = []
+        wind_directions = []
+        wind_speeds = []
+        timestamps = []
+
+        # Create dummy measurement vectors
+        for k in self.gas_measurements.keys():
+            v = self.gas_measurements[k]
+            x, y = k
+            for e in v:
+                measurement = e["measurement"]
+                timestamp = e["timestamp"]
+
+                positions_x.append(x)
+                positions_y.append(y)
+                concentrations.append(measurement)
+                wind_directions.append(0)
+                wind_speeds.append(0)
+                timestamps.append(timestamp)
+
+        self.kernel.set_measurements(positions_x, positions_y, concentrations, timestamps, wind_speeds, wind_directions)
+        self.kernel.calculate_maps()
+
+        # Show result as map
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        fig.suptitle('Kernel DM+V')
+        target_grid_data = self._target_grid_data.copy()
+
+        ax1.set_aspect(1.0)
+        ax1.title.set_text("mean map")
+        ax1.imshow(target_grid_data, alpha=0.4)
+        print("self.kernel.cell_grid_x", self.kernel.cell_grid_x)
+        print("self.kernel.cell_grid_y", self.kernel.cell_grid_y)
+        local_cell_grid_x, local_cell_grid_y = np.mgrid[self.kernel.min_x:self.kernel.max_x-1:1,
+                                               self.kernel.min_y:self.kernel.max_y-1:1]
+        local_mean_map = np.array(scale(self.kernel.mean_map, self.width, self.height))
+
+        #print("local_cell_grid_x.shape", local_cell_grid_x.shape)
+        #print("local_cell_grid_y.shape", local_cell_grid_y.shape)
+        #print("local_mean_map.shape:", local_mean_map.shape)
+
+        #ax1.imshow(local_mean_map, alpha=0.4)
+        data = ax1.contourf(local_cell_grid_x, local_cell_grid_y, local_mean_map, alpha=0.6)
+
+        #data = ax1.contourf(self.kernel.cell_grid_x, self.kernel.cell_grid_y, self.kernel.mean_map, alpha=0.6)
+        #plt.colorbar(data, ax=ax1)
+        #target_grid_data = cv2.cvtColor(target_grid_data, cv2.COLOR_GRAY2BGR)
+        #ax1.colorbar()
+
+        ax2.set_aspect(1.0)
+        ax2.title.set_text("variance map")
+        ax2.imshow(target_grid_data, alpha=0.4)
+        ax2.contourf(self.kernel.cell_grid_x, self.kernel.cell_grid_y, self.kernel.variance_map, alpha=0.6)
+        #ax2.colorbar()
+
+        ax3.set_aspect(1.0)
+        ax3.title.set_text("confidence map")
+        ax3.imshow(target_grid_data, alpha=0.4)
+        ax3.contourf(self.kernel.cell_grid_x, self.kernel.cell_grid_y, self.kernel.confidence_map, alpha=0.6)
+        #ax3.colorbar()
+
+        #plt.draw()
+        #plt.pause(0.001)
+        #plt.show()
+        plt.savefig('/tmp/kernel_dmv.jpg', dpi=fig.dpi)
+        plt.close()
+
+        #print(image_from_plot.shape)
+
+    # def update_map_estimation(self):
+    #
+    #     def map_to_img(occ_grid):
+    #         """ convert nav_msgs/OccupancyGrid to OpenCV mat
+    #             small noise in the occ grid is removed by
+    #             thresholding on the occupancy probability (> 50%)
+    #         """
+    #
+    #         data = occ_grid.data
+    #         w = occ_grid.info.width
+    #         h = occ_grid.info.height
+    #
+    #         img = np.zeros((h, w, 1), np.uint8)
+    #         img += 255  # start with a white canvas instead of a black one
+    #
+    #         # occupied cells (0 - 100 prob range)
+    #         # free cells (0)
+    #         # unknown -1
+    #         for i in range(0, h):
+    #             for j in range(0, w):
+    #                 if data[i * w + j] >= 50:
+    #                     img[i, j] = 0
+    #                 elif 0 < data[i * w + j] < 50:
+    #                     img[i, j] = 255
+    #                 elif data[i * w + j] == -1:
+    #                     img[i, j] = 205
+    #
+    #         # crop borders if performing map stitching
+    #         # img = img[20:380, 20:380]
+    #         return img
+    #
+    #     def valid_imshow_data(data):
+    #         data = np.asarray(data)
+    #         if data.ndim == 2:
+    #             return True
+    #         elif data.ndim == 3:
+    #             if 3 <= data.shape[2] <= 4:
+    #                 return True
+    #             else:
+    #                 print('The "data" has 3 dimensions but the last dimension '
+    #                       'must have a length of 3 (RGB) or 4 (RGBA), not "{}".'
+    #                       ''.format(data.shape[2]))
+    #                 return False
+    #         else:
+    #             print('To visualize an image the data must be 2 dimensional or '
+    #                   '3 dimensional, not "{}".'
+    #                   ''.format(data.ndim))
+    #             return False
+    #
+    #     import cv2
+    #
+    #     local_obs = self.active_obs.copy()
+    #     local_obs = (local_obs - np.min(local_obs)) / (3.0 - np.min(local_obs))
+    #
+    #     kernel = cv2.getGaussianKernel(11, 2.0)
+    #     local_obs = cv2.filter2D(local_obs, -1, kernel)
+    #
+    #     img = map_to_img(self._target_map)
+    #     #cv2.imshow("local_obs", local_obs)
+    #     #cv2.waitKey(0)
+    #
+    #     img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    #     #valid_imshow_data(img)
+    #
+    #     local_obs_img = cv2.cvtColor(local_obs, cv2.COLOR_GRAY2BGR)
+    #
+    #     # cv2.imshow("img", img)
+    #     # cv2.waitKey(0)
+    #
+    #     #plt.imshow(img, cmap='hot', interpolation='nearest')
+    #     plt.imshow(local_obs_img)
+    #     plt.show()
+    #     pass
 
     # def plot_gas_points(self):
     #     plt.scatter([self.map_min_x, self.map_min_x, self.map_max_x, self.map_max_x],
