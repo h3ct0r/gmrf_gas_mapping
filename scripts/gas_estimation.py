@@ -71,10 +71,10 @@ class GasEstimationNode(object):
             #self.updateMapEstimation_GMRF(self.GMRF_lambdaObsLoss)
             #self.plot_gas_points()
 
-            self.pub_var_markers()
             self._oc_manager.update_map_estimation()
             #self._oc_manager.update_map_estimation_gmrf()
 
+            self.pub_var_markers()
             rate.sleep()
 
     def is_initialized(self):
@@ -164,7 +164,16 @@ class GasEstimationNode(object):
     #     #cv2.waitKey(0)
 
     def pub_var_markers(self):
+
+        if self._oc_manager is None or self._oc_manager.local_mean_map is None:
+            return
+
         markerArray = MarkerArray()
+
+        max_v = np.max(self._oc_manager.local_mean_map)
+
+        print("self._oc_manager.local_mean_map:", self._oc_manager.local_mean_map)
+        print("max_v:", max_v)
 
         c_id = 0
         for i in xrange(self._oc_manager.width):
@@ -172,16 +181,21 @@ class GasEstimationNode(object):
 
                 marker = Marker()
                 marker.header.frame_id = self._frame_id
-                marker.id = c_id # (i * self._oc_manager.width) + j
-                marker.type = marker.SPHERE
+                marker.id = (i * self._oc_manager.height) + j
+                marker.type = marker.CUBE
                 marker.action = marker.ADD
-                marker.scale.x = 0.1
-                marker.scale.y = 0.1
-                marker.scale.z = 0.1
-                marker.color.a = 1.0
-                marker.color.r = 1.0
-                marker.color.g = 1.0
-                marker.color.b = 0.0
+                marker.scale.x = 0.2
+                marker.scale.y = 0.2
+                marker.scale.z = 0.05
+                marker.color.a = 0.7
+
+                marker.color.r = 1.0 * self._oc_manager.local_mean_map[i][j] / max_v
+                marker.color.g = 0.8 * (1 - 2.0 * abs(self._oc_manager.local_mean_map[i][j] - max_v / 2) / max_v)
+                marker.color.b = 1 - 1.0 * self._oc_manager.local_mean_map[i][j] / max_v
+
+                # marker.color.r = 1.0
+                # marker.color.g = 1.0
+                # marker.color.b = 0.0
                 marker.pose.orientation.w = 1.0
 
                 wx, wy = self._oc_manager.get_world_x_y(i, j)

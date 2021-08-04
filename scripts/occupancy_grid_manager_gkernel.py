@@ -69,6 +69,7 @@ class OccupancyGridManagerGKernel(object):
         wind_scale = 0.05
         time_scale = 0.001
         evaluation_radius = 2 * kernel_size
+        self.local_mean_map = None
 
         # call Kernel
         self.kernel = TDKernelDMVW(min_x, min_y, max_x, max_y, cell_size, kernel_size, wind_scale, time_scale,
@@ -451,8 +452,8 @@ class OccupancyGridManagerGKernel(object):
         ax1.set_aspect(1.0)
         ax1.title.set_text("mean map")
         ax1.imshow(target_grid_data, alpha=0.4)
-        print("self.kernel.cell_grid_x", self.kernel.cell_grid_x)
-        print("self.kernel.cell_grid_y", self.kernel.cell_grid_y)
+        # print("self.kernel.cell_grid_x", self.kernel.cell_grid_x)
+        # print("self.kernel.cell_grid_y", self.kernel.cell_grid_y)
         local_cell_grid_x, local_cell_grid_y = np.mgrid[self.kernel.min_x:self.kernel.max_x-1:1,
                                                self.kernel.min_y:self.kernel.max_y-1:1]
         local_mean_map = np.array(scale(self.kernel.mean_map, self.width, self.height))
@@ -463,6 +464,10 @@ class OccupancyGridManagerGKernel(object):
 
         #ax1.imshow(local_mean_map, alpha=0.4)
         data = ax1.contourf(local_cell_grid_x, local_cell_grid_y, local_mean_map, alpha=0.6)
+        self.local_mean_map = local_mean_map
+
+        where_are_NaNs = np.isnan(self.local_mean_map)
+        self.local_mean_map[where_are_NaNs] = 0
 
         #data = ax1.contourf(self.kernel.cell_grid_x, self.kernel.cell_grid_y, self.kernel.mean_map, alpha=0.6)
         #plt.colorbar(data, ax=ax1)
